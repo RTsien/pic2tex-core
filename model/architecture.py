@@ -290,8 +290,9 @@ class PositionalEncoding(nn.Module):
     def __init__(self, d_model: int, max_len: int = 512, dropout: float = 0.1):
         super().__init__()
         self.dropout = nn.Dropout(dropout)
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        alloc_len = max(max_len * 2, 1024)
+        pe = torch.zeros(alloc_len, d_model)
+        position = torch.arange(0, alloc_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)

@@ -119,6 +119,7 @@ def create_dataloader(
     augment: bool = False,
     shuffle: bool = True,
     num_workers: int = 4,
+    pin_memory: bool = False,
 ) -> DataLoader:
     dataset = FormulaDataset(
         data_dir=data_dir,
@@ -133,6 +134,6 @@ def create_dataloader(
         shuffle=shuffle,
         num_workers=num_workers,
         collate_fn=collate_fn,
-        pin_memory=True,
+        pin_memory=pin_memory,
         drop_last=shuffle,
     )

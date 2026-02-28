@@ -38,16 +38,37 @@ python -m data_gen.build_dataset --data-dir data --output data/processed
 
 ### 模型训练
 
+训练脚本自动检测最佳设备（CUDA > MPS > CPU），也可通过 `--device` 手动指定。
+
 ```bash
-# 阶段一：合成数据预训练
+# Mac M 芯片加速训练（自动检测 MPS，batch_size=32）
+python -m model.train --config model/configs/mps_train.yaml
+
+# CUDA GPU 训练（支持 FP16 混合精度，batch_size=64）
 python -m model.train --config model/configs/pretrain.yaml
 
-# 阶段二：真实数据微调
-python -m model.train --config model/configs/finetune.yaml --resume checkpoints/pretrain_best.pt
+# CPU 训练（batch_size=16，适合无 GPU 环境）
+python -m model.train --config model/configs/cpu_train.yaml
+
+# 从 checkpoint 恢复训练（config 需与原训练一致）
+python -m model.train --config model/configs/mps_train.yaml --resume checkpoints/best.pt
+
+# 手动指定设备（覆盖自动检测）
+python -m model.train --config model/configs/cpu_train.yaml --device cpu
 
 # 评估
 python -m model.evaluate --checkpoint checkpoints/best.pt --data data/test
 ```
+
+> 每个配置文件的 `batch_size` 和 `num_workers` 已针对对应设备优化，请选择匹配的配置。
+
+#### 设备加速对比
+
+| 设备 | 预计速度 | 说明 |
+|------|---------|------|
+| NVIDIA GPU (CUDA) | ~10-20x | 支持 FP16 混合精度 |
+| Apple M1/M2/M3/M4 (MPS) | ~3-5x | Metal Performance Shaders 加速 |
+| CPU | 1x (baseline) | 适合小规模实验 |
 
 ### 导出与部署
 

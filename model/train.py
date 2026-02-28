@@ -3,11 +3,12 @@ Training script for TeXer model.
 
 Supports:
 - Multi-stage training (pretrain on synthetic, finetune on real)
-- Mixed precision (FP16/BF16)
+- Mixed precision (FP16/BF16 on CUDA, BF16 on MPS where available)
 - Cosine LR schedule with warmup
 - Early stopping
 - Checkpoint save/resume
 - Optional W&B logging
+- Accelerated training on CUDA, Apple MPS (M-series chips), or CPU
 """
 
 import argparse
@@ -16,7 +17,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from tqdm import tqdm
@@ -28,6 +29,48 @@ from model.dataset import create_dataloader
 from model.evaluate import evaluate_model
 
 
+def select_device(force: str = None) -> torch.device:
+    """Auto-detect the best available device: CUDA > MPS > CPU.
+
+    Args:
+        force: Override auto-detection with "cuda", "mps", or "cpu".
+    """
+    if force:
+        return torch.device(force)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+def get_amp_config(device: torch.device, fp16_requested: bool) -> dict:
+    """Return autocast / GradScaler settings appropriate for the device.
+
+    Returns dict with keys: use_amp, amp_device_type, amp_dtype, use_scaler.
+    """
+    if device.type == "cuda" and fp16_requested:
+        return {
+            "use_amp": True,
+            "amp_device_type": "cuda",
+            "amp_dtype": torch.float16,
+            "use_scaler": True,
+        }
+    if device.type == "mps":
+        return {
+            "use_amp": False,
+            "amp_device_type": "cpu",
+            "amp_dtype": torch.float32,
+            "use_scaler": False,
+        }
+    return {
+        "use_amp": False,
+        "amp_device_type": "cpu",
+        "amp_dtype": torch.float32,
+        "use_scaler": False,
+    }
+
+
 def train_epoch(
     model: nn.Module,
     dataloader,
@@ -36,7 +79,7 @@ def train_epoch(
     scaler: GradScaler,
     criterion: nn.Module,
     device: torch.device,
-    fp16: bool = True,
+    amp_cfg: dict,
     grad_clip: float = 1.0,
 ) -> dict:
     model.train()
@@ -52,18 +95,27 @@ def train_epoch(
 
         optimizer.zero_grad()
 
-        with autocast(enabled=fp16):
+        with autocast(
+            device_type=amp_cfg["amp_device_type"],
+            dtype=amp_cfg["amp_dtype"],
+            enabled=amp_cfg["use_amp"],
+        ):
             logits = model(images, input_ids, tgt_key_padding_mask=padding_mask)
             loss = criterion(
                 logits.reshape(-1, logits.size(-1)),
                 target_ids.reshape(-1),
             )
 
-        scaler.scale(loss).backward()
-        scaler.unscale_(optimizer)
-        nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-        scaler.step(optimizer)
-        scaler.update()
+        if amp_cfg["use_scaler"]:
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            optimizer.step()
         scheduler.step()
 
         non_pad = ~padding_mask
@@ -117,9 +169,14 @@ def load_checkpoint(
     return checkpoint
 
 
-def train(config: TexerConfig, resume: str = None):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def train(config: TexerConfig, resume: str = None, force_device: str = None):
+    device = select_device(force_device)
+    amp_cfg = get_amp_config(device, config.train.fp16)
     print(f"Using device: {device}")
+    if device.type == "mps":
+        print("  Apple MPS acceleration enabled (Metal Performance Shaders)")
+    if amp_cfg["use_amp"]:
+        print(f"  Mixed precision: {amp_cfg['amp_dtype']}")
 
     tokenizer = LaTeXTokenizer()
     if Path(config.data.vocab_path).exists():
@@ -132,6 +189,7 @@ def train(config: TexerConfig, resume: str = None):
     params = model.count_parameters()
     print(f"Model parameters: {params['total']:,} ({params['total_mb']:.1f} MB)")
 
+    pin = device.type == "cuda"
     train_loader = create_dataloader(
         config.data.train_dir, tokenizer,
         batch_size=config.train.batch_size,
@@ -139,6 +197,7 @@ def train(config: TexerConfig, resume: str = None):
         max_seq_len=config.data.max_seq_len,
         augment=True, shuffle=True,
         num_workers=config.train.num_workers,
+        pin_memory=pin,
     )
     val_loader = create_dataloader(
         config.data.val_dir, tokenizer,
@@ -147,6 +206,7 @@ def train(config: TexerConfig, resume: str = None):
         max_seq_len=config.data.max_seq_len,
         augment=False, shuffle=False,
         num_workers=config.train.num_workers,
+        pin_memory=pin,
     )
 
     criterion = nn.CrossEntropyLoss(
@@ -178,7 +238,7 @@ def train(config: TexerConfig, resume: str = None):
         milestones=[config.train.warmup_steps],
     )
 
-    scaler = GradScaler(enabled=config.train.fp16)
+    scaler = GradScaler(enabled=amp_cfg["use_scaler"])
 
     start_epoch = 0
     best_val_loss = float("inf")
@@ -219,7 +279,7 @@ def train(config: TexerConfig, resume: str = None):
         train_metrics = train_epoch(
             model, train_loader, optimizer, scheduler, scaler,
             criterion, device,
-            fp16=config.train.fp16,
+            amp_cfg=amp_cfg,
             grad_clip=config.train.grad_clip,
         )
 
@@ -235,7 +295,7 @@ def train(config: TexerConfig, resume: str = None):
             val_metrics = evaluate_model(
                 model, val_loader, criterion, device,
                 tokenizer=tokenizer,
-                fp16=config.train.fp16,
+                amp_cfg=amp_cfg,
             )
             print(
                 f"  val_loss: {val_metrics['loss']:.4f} "
@@ -292,6 +352,8 @@ def main():
     parser = argparse.ArgumentParser(description="Train TeXer model")
     parser.add_argument("--config", type=str, help="Config YAML path")
     parser.add_argument("--resume", type=str, help="Checkpoint to resume from")
+    parser.add_argument("--device", type=str, choices=["cuda", "mps", "cpu"],
+                        help="Force device (default: auto-detect)")
     args = parser.parse_args()
 
     if args.config:
@@ -299,7 +361,7 @@ def main():
     else:
         config = TexerConfig()
 
-    train(config, resume=args.resume)
+    train(config, resume=args.resume, force_device=args.device)
 
 
 if __name__ == "__main__":

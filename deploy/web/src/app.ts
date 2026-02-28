@@ -149,6 +149,40 @@ latexOutput.addEventListener("input", () => {
 
 // --- Init ---
 
+async function autoTest(imageUrl: string) {
+  const resp = await fetch(imageUrl);
+  const blob = await resp.blob();
+  const img = new Image();
+  img.onload = async () => {
+    previewImg.src = imageUrl;
+    previewImg.style.display = "block";
+    resultArea.style.display = "block";
+
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(img, 0, 0);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    setStatus("Recognizing formula...", "info");
+    showLoading(true);
+    try {
+      const startTime = performance.now();
+      const latex = await engine.recognize(imageData);
+      const elapsed = (performance.now() - startTime).toFixed(0);
+      latexOutput.value = latex;
+      renderKatex(latex);
+      setStatus(`Done in ${elapsed}ms`, "success");
+    } catch (err) {
+      setStatus(`Error: ${err}`, "error");
+    } finally {
+      showLoading(false);
+    }
+  };
+  img.src = URL.createObjectURL(blob);
+}
+
 async function init() {
   setStatus("Loading model...", "info");
   showLoading(true);
@@ -156,6 +190,12 @@ async function init() {
   try {
     await engine.load("./model");
     setStatus("Ready - drop or paste a formula image", "success");
+
+    const params = new URLSearchParams(window.location.search);
+    const testImg = params.get("test");
+    if (testImg) {
+      await autoTest(testImg);
+    }
   } catch (err) {
     setStatus(
       "Model not found. Place ONNX files in public/model/ directory.",

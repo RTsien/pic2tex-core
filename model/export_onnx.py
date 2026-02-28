@@ -175,7 +175,10 @@ def export_full(
     quantize: bool = True,
     verify: bool = True,
 ) -> None:
-    """Full export pipeline: load checkpoint -> export ONNX -> quantize -> verify."""
+    """Full export pipeline: load checkpoint -> export ONNX -> quantize -> verify.
+
+    ONNX export always runs on CPU regardless of training device.
+    """
     if config is None:
         config = TexerConfig()
 
@@ -185,7 +188,7 @@ def export_full(
     config.decoder.vocab_size = tokenizer.vocab_size
 
     model = build_model(config)
-    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 

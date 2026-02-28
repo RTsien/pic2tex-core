@@ -16,7 +16,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from tqdm import tqdm
 
 from model.config import TexerConfig
@@ -56,7 +56,8 @@ def evaluate_model(
     criterion: nn.Module,
     device: torch.device,
     tokenizer: Optional[LaTeXTokenizer] = None,
-    fp16: bool = True,
+    fp16: bool = False,
+    amp_cfg: Optional[dict] = None,
     max_generate: int = 200,
 ) -> dict:
     """
@@ -64,6 +65,14 @@ def evaluate_model(
 
     Returns dict with loss, accuracy, bleu, exact_match.
     """
+    if amp_cfg is None:
+        use_amp = fp16 and device.type == "cuda"
+        amp_cfg = {
+            "use_amp": use_amp,
+            "amp_device_type": device.type if device.type == "cuda" else "cpu",
+            "amp_dtype": torch.float16 if use_amp else torch.float32,
+        }
+
     model.eval()
     total_loss = 0.0
     total_tokens = 0
@@ -79,7 +88,11 @@ def evaluate_model(
         target_ids = batch["target_ids"].to(device)
         padding_mask = batch["padding_mask"].to(device)
 
-        with autocast(enabled=fp16):
+        with autocast(
+            device_type=amp_cfg["amp_device_type"],
+            dtype=amp_cfg["amp_dtype"],
+            enabled=amp_cfg["use_amp"],
+        ):
             logits = model(images, input_ids, tgt_key_padding_mask=padding_mask)
             loss = criterion(
                 logits.reshape(-1, logits.size(-1)),
@@ -134,9 +147,12 @@ def main():
     parser.add_argument("--output", type=str, help="Output results JSON path")
     parser.add_argument("--max-generate", type=int, default=500)
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--device", type=str, choices=["cuda", "mps", "cpu"],
+                        help="Force device (default: auto-detect)")
     args = parser.parse_args()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    from model.train import select_device
+    device = select_device(args.device)
 
     if args.config:
         config = TexerConfig.load(args.config)
