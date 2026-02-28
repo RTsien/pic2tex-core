@@ -1,0 +1,41 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Data & checkpoints
+data/train/
+data/val/
+data/test/
+data/external/
+data/processed/
+data/synthetic/
+data/real/
+checkpoints/
+logs/
+*.pt
+*.onnx
+
+# Web build
+deploy/web/node_modules/
+deploy/web/dist/
+deploy/web/public/model/*.onnx
+deploy/web/public/model/*.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+*.log
+wandb/

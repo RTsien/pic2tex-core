@@ -1,0 +1,46 @@
+encoder:
+  image_size: 224
+  patch_size: 4
+  in_channels: 1
+  embed_dim: 64
+  depths: [2, 2, 6, 2]
+  num_heads: [2, 4, 8, 16]
+  window_size: 7
+  mlp_ratio: 4.0
+  drop_rate: 0.1
+  attn_drop_rate: 0.1
+  drop_path_rate: 0.2
+
+decoder:
+  vocab_size: 600
+  max_seq_len: 512
+  d_model: 256
+  nhead: 8
+  num_layers: 4
+  dim_feedforward: 1024
+  dropout: 0.15
+
+train:
+  batch_size: 32
+  num_epochs: 50
+  learning_rate: 5.0e-5
+  weight_decay: 0.01
+  warmup_steps: 500
+  label_smoothing: 0.05
+  grad_clip: 1.0
+  fp16: true
+  num_workers: 4
+  save_every: 5
+  eval_every: 1
+  patience: 10
+  checkpoint_dir: checkpoints/finetune
+  log_dir: logs/finetune
+  wandb_project: null
+
+data:
+  train_dir: data/real/train
+  val_dir: data/real/val
+  test_dir: data/real/test
+  vocab_path: model/vocab.json
+  image_size: 224
+  max_seq_len: 512
