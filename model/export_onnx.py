@@ -34,7 +34,12 @@ class EncoderWrapper(nn.Module):
 
 
 class DecoderWrapper(nn.Module):
-    """Wraps the decoder for ONNX export with a clean interface."""
+    """Wraps the decoder for ONNX export with a clean interface.
+
+    Explicitly constructs the causal mask inside forward to avoid
+    torch.nn.TransformerDecoder's _detect_is_causal_mask which is
+    incompatible with dynamo tracing.
+    """
 
     def __init__(self, decoder):
         super().__init__()
@@ -45,7 +50,12 @@ class DecoderWrapper(nn.Module):
         input_ids: torch.Tensor,
         encoder_output: torch.Tensor,
     ) -> torch.Tensor:
-        logits = self.decoder(input_ids, encoder_output)
+        seq_len = input_ids.size(1)
+        causal_mask = torch.triu(
+            torch.full((seq_len, seq_len), float("-inf"), device=input_ids.device),
+            diagonal=1,
+        )
+        logits = self.decoder(input_ids, encoder_output, tgt_mask=causal_mask)
         return logits
 
 
@@ -71,6 +81,7 @@ def export_encoder(
             "image": {0: "batch_size"},
             "encoder_output": {0: "batch_size"},
         },
+        dynamo=False,
     )
     print(f"Encoder exported to {output_path}")
 
@@ -100,6 +111,7 @@ def export_decoder(
             "encoder_output": {0: "batch_size", 1: "enc_seq_len"},
             "logits": {0: "batch_size", 1: "seq_len"},
         },
+        dynamo=False,
     )
     print(f"Decoder exported to {output_path}")
 

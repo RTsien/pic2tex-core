@@ -101,7 +101,7 @@ export class TeXerEngine {
     return new ort.Tensor("float32", floatData, [1, 1, size, size]);
   }
 
-  async recognize(imageData: ImageData, maxLen: number = 512): Promise<string> {
+  async recognize(imageData: ImageData, maxLen: number = 100): Promise<string> {
     if (!this.isLoaded) {
       throw new Error("Model not loaded. Call load() first.");
     }
@@ -142,7 +142,7 @@ export class TeXerEngine {
         }
       }
 
-      if (maxIdx === this.eosId) break;
+      if (maxIdx === this.eosId || maxIdx === this.padId) break;
       inputIds.push(maxIdx);
     }
 

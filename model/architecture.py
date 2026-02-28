@@ -302,8 +302,86 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 
+class OnnxFriendlyMultiHeadAttention(nn.Module):
+    """Multi-head attention that avoids problematic reshapes during ONNX trace."""
+
+    def __init__(self, d_model: int, nhead: int, dropout: float = 0.1):
+        super().__init__()
+        self.nhead = nhead
+        self.head_dim = d_model // nhead
+        self.d_model = d_model
+        self.q_proj = nn.Linear(d_model, d_model)
+        self.k_proj = nn.Linear(d_model, d_model)
+        self.v_proj = nn.Linear(d_model, d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+        self.attn_drop = nn.Dropout(dropout)
+        self.scale = self.head_dim ** -0.5
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        attn_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        B, T, _ = query.shape
+        _, S, _ = key.shape
+
+        q = self.q_proj(query).view(B, T, self.nhead, self.head_dim).transpose(1, 2)
+        k = self.k_proj(key).view(B, S, self.nhead, self.head_dim).transpose(1, 2)
+        v = self.v_proj(value).view(B, S, self.nhead, self.head_dim).transpose(1, 2)
+
+        attn = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+        if attn_mask is not None:
+            attn = attn + attn_mask.unsqueeze(0).unsqueeze(0)
+        attn = F.softmax(attn, dim=-1)
+        attn = self.attn_drop(attn)
+
+        out = torch.matmul(attn, v)
+        out = out.transpose(1, 2).contiguous().view(B, T, self.d_model)
+        return self.out_proj(out)
+
+
+class OnnxFriendlyDecoderLayer(nn.Module):
+    """Single decoder layer with self-attention + cross-attention, ONNX-safe."""
+
+    def __init__(self, d_model: int, nhead: int, dim_feedforward: int, dropout: float):
+        super().__init__()
+        self.self_attn = OnnxFriendlyMultiHeadAttention(d_model, nhead, dropout)
+        self.cross_attn = OnnxFriendlyMultiHeadAttention(d_model, nhead, dropout)
+        self.ff = nn.Sequential(
+            nn.Linear(d_model, dim_feedforward),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(dim_feedforward, d_model),
+            nn.Dropout(dropout),
+        )
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.norm3 = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(
+        self,
+        tgt: torch.Tensor,
+        memory: torch.Tensor,
+        tgt_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        x = self.norm1(tgt)
+        x = tgt + self.dropout(self.self_attn(x, x, x, attn_mask=tgt_mask))
+        res = x
+        x = self.norm2(x)
+        x = res + self.dropout(self.cross_attn(x, memory, memory))
+        x = x + self.ff(self.norm3(x))
+        return x
+
+
 class TeXerDecoder(nn.Module):
-    """Transformer decoder with cross-attention to encoder features (~8M params)."""
+    """Transformer decoder with cross-attention to encoder features (~8M params).
+
+    Uses custom ONNX-friendly attention layers instead of nn.TransformerDecoder
+    to ensure dynamic sequence lengths work correctly after ONNX export.
+    """
 
     def __init__(self, config: DecoderConfig, encoder_dim: int):
         super().__init__()
@@ -313,16 +391,16 @@ class TeXerDecoder(nn.Module):
 
         self.encoder_proj = nn.Linear(encoder_dim, config.d_model)
 
-        decoder_layer = nn.TransformerDecoderLayer(
-            d_model=config.d_model,
-            nhead=config.nhead,
-            dim_feedforward=config.dim_feedforward,
-            dropout=config.dropout,
-            activation="gelu",
-            batch_first=True,
-            norm_first=True,
-        )
-        self.transformer_decoder = nn.TransformerDecoder(decoder_layer, config.num_layers)
+        self.layers = nn.ModuleList([
+            OnnxFriendlyDecoderLayer(
+                d_model=config.d_model,
+                nhead=config.nhead,
+                dim_feedforward=config.dim_feedforward,
+                dropout=config.dropout,
+            )
+            for _ in range(config.num_layers)
+        ])
+        self.final_norm = nn.LayerNorm(config.d_model)
 
         self.output_proj = nn.Linear(config.d_model, config.vocab_size)
         self.max_seq_len = config.max_seq_len
@@ -342,12 +420,10 @@ class TeXerDecoder(nn.Module):
         if tgt_mask is None:
             tgt_mask = self._generate_causal_mask(tgt.size(1), tgt.device)
 
-        x = self.transformer_decoder(
-            x, memory,
-            tgt_mask=tgt_mask,
-            tgt_key_padding_mask=tgt_key_padding_mask,
-        )
+        for layer in self.layers:
+            x = layer(x, memory, tgt_mask=tgt_mask)
 
+        x = self.final_norm(x)
         logits = self.output_proj(x)
         return logits
 
