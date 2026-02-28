@@ -117,13 +117,13 @@ class QwenAnnotatorTransformers:
     """Annotator using HuggingFace transformers (lower throughput, easier setup)."""
 
     def __init__(self, model_id: str = MODEL_ID, device: str = "auto"):
-        from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
-        import torch
+        from transformers import AutoModelForImageTextToText, AutoProcessor
 
         self.processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
-        self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        # Use an auto model class so Qwen2.5-VL / Qwen3-VL configs map correctly.
+        self.model = AutoModelForImageTextToText.from_pretrained(
             model_id,
-            torch_dtype=torch.bfloat16,
+            dtype="auto",
             device_map=device,
             trust_remote_code=True,
         )

@@ -10,6 +10,7 @@ from pathlib import Path
 
 @dataclass
 class EncoderConfig:
+    encoder_type: str = "swin"  # "swin" or "cnn"
     image_size: int = 224
     patch_size: int = 4
     in_channels: int = 1  # grayscale
@@ -21,6 +22,8 @@ class EncoderConfig:
     drop_rate: float = 0.0
     attn_drop_rate: float = 0.0
     drop_path_rate: float = 0.1
+    cnn_channels: list[int] = field(default_factory=lambda: [64, 128, 256, 512])
+    cnn_dropout: float = 0.1
 
 
 @dataclass

@@ -1,0 +1,9 @@
+{
+  "image_size": 224,
+  "max_seq_len": 256,
+  "vocab_size": 356,
+  "in_channels": 1,
+  "encoder_file": "encoder_quantized.onnx",
+  "decoder_file": "decoder_quantized.onnx",
+  "vocab_file": "vocab.json"
+}

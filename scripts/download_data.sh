@@ -1,7 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DATA_DIR="${1:-data/external}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+if [ "${1:-}" != "" ]; then
+    if [[ "$1" = /* ]]; then
+        DATA_DIR="$1"
+    else
+        DATA_DIR="$PROJECT_ROOT/$1"
+    fi
+else
+    DATA_DIR="$PROJECT_ROOT/data/external"
+fi
+
 mkdir -p "$DATA_DIR"
 
 echo "=== Downloading im2latex-230k dataset ==="

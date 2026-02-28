@@ -242,6 +242,7 @@ def train(config: TexerConfig, resume: str = None, force_device: str = None):
 
     start_epoch = 0
     best_val_loss = float("inf")
+    best_val_bleu = -1.0
     patience_counter = 0
 
     if resume:
@@ -300,7 +301,8 @@ def train(config: TexerConfig, resume: str = None, force_device: str = None):
             print(
                 f"  val_loss: {val_metrics['loss']:.4f} "
                 f"| val_acc: {val_metrics['accuracy']:.4f} "
-                f"| val_bleu: {val_metrics.get('bleu', 0):.4f}"
+                f"| val_bleu: {val_metrics.get('bleu', 0):.4f} "
+                f"| val_unique: {val_metrics.get('unique_prediction_ratio', 0):.4f}"
             )
 
             if wandb_run:
@@ -312,8 +314,21 @@ def train(config: TexerConfig, resume: str = None, force_device: str = None):
                     "val_loss": val_metrics["loss"],
                     "val_acc": val_metrics["accuracy"],
                     "val_bleu": val_metrics.get("bleu", 0),
+                    "val_unique_prediction_ratio": val_metrics.get("unique_prediction_ratio", 0),
+                    "val_most_common_prediction_fraction": val_metrics.get("most_common_prediction_fraction", 0),
                     "lr": optimizer.param_groups[0]["lr"],
                 })
+
+            # Detect output collapse where many inputs decode to the same formula.
+            # This often does not show up in token-level loss, so we warn explicitly.
+            num_eval = val_metrics.get("num_evaluated", 0)
+            collapse_fraction = val_metrics.get("most_common_prediction_fraction", 0.0)
+            if num_eval >= 20 and collapse_fraction >= 0.8:
+                print(
+                    "  WARNING: output collapse detected "
+                    f"(most_common_prediction_fraction={collapse_fraction:.2%}, "
+                    f"num_evaluated={num_eval})."
+                )
 
             if val_metrics["loss"] < best_val_loss:
                 best_val_loss = val_metrics["loss"]
@@ -329,6 +344,16 @@ def train(config: TexerConfig, resume: str = None, force_device: str = None):
                 if patience_counter >= config.train.patience:
                     print(f"  Early stopping after {patience_counter} epochs without improvement")
                     break
+
+            val_bleu = val_metrics.get("bleu", 0.0)
+            if val_bleu > best_val_bleu:
+                best_val_bleu = val_bleu
+                save_checkpoint(
+                    model, optimizer, scheduler, scaler,
+                    epoch, best_val_loss,
+                    str(ckpt_dir / "best_bleu.pt"),
+                )
+                print(f"  -> New BLEU-best model saved (val_bleu={best_val_bleu:.4f})")
 
         if (epoch + 1) % config.train.save_every == 0:
             save_checkpoint(

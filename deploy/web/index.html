@@ -202,8 +202,32 @@
     .status-bar {
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
       padding: 8px 0;
+    }
+
+    .model-picker {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    #model-select {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 13px;
+      outline: none;
+    }
+
+    #model-select:focus {
+      border-color: var(--accent);
     }
 
     .status-info { color: var(--text-muted); }
@@ -265,6 +289,14 @@
   <main>
     <div class="status-bar">
       <span id="status" class="status-info">Initializing...</span>
+      <label class="model-picker">
+        Model
+        <select id="model-select">
+          <option value="cnn">CNN (faster)</option>
+          <option value="swin_small">Swin Small (balanced)</option>
+          <option value="swin">Swin (higher accuracy)</option>
+        </select>
+      </label>
     </div>
 
     <div id="drop-zone">

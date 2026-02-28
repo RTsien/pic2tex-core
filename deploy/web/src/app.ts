@@ -24,6 +24,17 @@ const katexPreview = $("#katex-preview") as HTMLDivElement;
 const copyBtn = $("#copy-btn") as HTMLButtonElement;
 const statusText = $("#status") as HTMLSpanElement;
 const loadingOverlay = $("#loading-overlay") as HTMLDivElement;
+const modelSelect = $("#model-select") as HTMLSelectElement;
+
+type ModelKey = "cnn" | "swin" | "swin_small";
+
+const MODEL_CONFIG: Record<ModelKey, { label: string; dir: string }> = {
+  cnn: { label: "CNN", dir: "./model_cnn" },
+  swin: { label: "Swin", dir: "./model" },
+  swin_small: { label: "Swin Small", dir: "./model_swin_small" },
+};
+
+let activeModel: ModelKey = "cnn";
 
 function setStatus(text: string, type: "info" | "success" | "error" = "info") {
   statusText.textContent = text;
@@ -32,6 +43,42 @@ function setStatus(text: string, type: "info" | "success" | "error" = "info") {
 
 function showLoading(show: boolean) {
   loadingOverlay.style.display = show ? "flex" : "none";
+}
+
+function getModelFromQuery(): ModelKey {
+  const value = new URLSearchParams(window.location.search).get("model");
+  if (value === "cnn" || value === "swin" || value === "swin_small") return value;
+  return "cnn";
+}
+
+function updateModelQuery(model: ModelKey) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("model", model);
+  window.history.replaceState({}, "", url.toString());
+}
+
+async function loadModel(model: ModelKey, syncQuery: boolean): Promise<void> {
+  const cfg = MODEL_CONFIG[model];
+  activeModel = model;
+  modelSelect.value = model;
+  modelSelect.disabled = true;
+  setStatus(`Loading ${cfg.label} model...`, "info");
+  showLoading(true);
+
+  try {
+    await engine.load(cfg.dir);
+    if (syncQuery) updateModelQuery(model);
+    setStatus(`Ready (${cfg.label}) - drop or paste a formula image`, "success");
+  } catch (err) {
+    setStatus(
+      `Model not found. Place ONNX files in public/${cfg.dir.replace("./", "")}/ directory.`,
+      "error"
+    );
+    console.error("Failed to load model:", err);
+  } finally {
+    modelSelect.disabled = false;
+    showLoading(false);
+  }
 }
 
 function renderKatex(latex: string) {
@@ -72,7 +119,7 @@ async function processImage(file: File | Blob) {
 
       latexOutput.value = latex;
       renderKatex(latex);
-      setStatus(`Done in ${elapsed}ms`, "success");
+      setStatus(`Done in ${elapsed}ms (${MODEL_CONFIG[activeModel].label})`, "success");
     } catch (err) {
       setStatus(`Error: ${err}`, "error");
       latexOutput.value = "";
@@ -107,6 +154,11 @@ dropZone.addEventListener("drop", (e) => {
 
 dropZone.addEventListener("click", () => {
   fileInput.click();
+});
+
+modelSelect.addEventListener("change", async () => {
+  const next = modelSelect.value as ModelKey;
+  await loadModel(next, true);
 });
 
 fileInput.addEventListener("change", () => {
@@ -184,26 +236,13 @@ async function autoTest(imageUrl: string) {
 }
 
 async function init() {
-  setStatus("Loading model...", "info");
-  showLoading(true);
+  const initialModel = getModelFromQuery();
+  await loadModel(initialModel, true);
 
-  try {
-    await engine.load("./model");
-    setStatus("Ready - drop or paste a formula image", "success");
-
-    const params = new URLSearchParams(window.location.search);
-    const testImg = params.get("test");
-    if (testImg) {
-      await autoTest(testImg);
-    }
-  } catch (err) {
-    setStatus(
-      "Model not found. Place ONNX files in public/model/ directory.",
-      "error"
-    );
-    console.error("Failed to load model:", err);
-  } finally {
-    showLoading(false);
+  const params = new URLSearchParams(window.location.search);
+  const testImg = params.get("test");
+  if (testImg && engine.isLoaded) {
+    await autoTest(testImg);
   }
 }
 

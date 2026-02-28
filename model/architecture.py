@@ -283,6 +283,76 @@ class SwinEncoder(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# CNN Encoder (lightweight)
+# ---------------------------------------------------------------------------
+
+class ResidualConvBlock(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, stride: int = 1):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.act = nn.GELU()
+
+        if stride != 1 or in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(out_channels),
+            )
+        else:
+            self.shortcut = nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        identity = self.shortcut(x)
+        x = self.act(self.bn1(self.conv1(x)))
+        x = self.bn2(self.conv2(x))
+        x = self.act(x + identity)
+        return x
+
+
+class CNNEncoder(nn.Module):
+    """Lightweight CNN encoder for faster training/inference on edge devices."""
+
+    def __init__(self, config: EncoderConfig):
+        super().__init__()
+        channels = config.cnn_channels
+        if len(channels) < 2:
+            raise ValueError("encoder.cnn_channels must contain at least 2 stages")
+
+        self.stem = nn.Sequential(
+            nn.Conv2d(config.in_channels, channels[0], kernel_size=7, stride=2, padding=3, bias=False),
+            nn.BatchNorm2d(channels[0]),
+            nn.GELU(),
+            nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
+        )
+
+        stages = []
+        in_ch = channels[0]
+        for i, out_ch in enumerate(channels):
+            stride = 1 if i == 0 else 2
+            stage = nn.Sequential(
+                ResidualConvBlock(in_ch, out_ch, stride=stride),
+                ResidualConvBlock(out_ch, out_ch, stride=1),
+                nn.Dropout2d(config.cnn_dropout) if config.cnn_dropout > 0 else nn.Identity(),
+            )
+            stages.append(stage)
+            in_ch = out_ch
+        self.stages = nn.ModuleList(stages)
+
+        self.output_dim = channels[-1]
+        self.norm = nn.LayerNorm(self.output_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.stem(x)
+        for stage in self.stages:
+            x = stage(x)
+        x = x.flatten(2).transpose(1, 2)  # (B, H*W, C)
+        x = self.norm(x)
+        return x
+
+
+# ---------------------------------------------------------------------------
 # Transformer Decoder
 # ---------------------------------------------------------------------------
 
@@ -447,7 +517,13 @@ class TeXerModel(nn.Module):
     def __init__(self, config: TexerConfig):
         super().__init__()
         self.config = config
-        self.encoder = SwinEncoder(config.encoder)
+        encoder_type = config.encoder.encoder_type.lower()
+        if encoder_type == "swin":
+            self.encoder = SwinEncoder(config.encoder)
+        elif encoder_type == "cnn":
+            self.encoder = CNNEncoder(config.encoder)
+        else:
+            raise ValueError(f"Unsupported encoder_type: {config.encoder.encoder_type}")
         self.decoder = TeXerDecoder(config.decoder, self.encoder.output_dim)
 
     def forward(

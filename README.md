@@ -20,23 +20,35 @@ TeXer 是一个端到端的公式图片识别系统，能将数学公式、化�
 pip install -r requirements.txt
 ```
 
-### 数据生成
+> macOS（尤其 Apple Silicon）默认不安装 `vllm`，请使用 `transformers` 后端进行标注。
+
+### 推荐：一键全流程（首次使用建议）
+
+```bash
+bash scripts/run_pipeline.sh
+```
+
+该脚本会依次完成：下载数据、生成合成数据、构建数据集、训练、评估、导出 ONNX。
+
+### 分步执行（需要自定义流程时）
+
+#### 1) 数据生成
 
 ```bash
 # 1. 下载公开数据集
-bash scripts/download_data.sh
+bash scripts/download_data.sh data/external
 
 # 2. 生成合成公式图片
-python -m data_gen.formula_renderer --output data/train --count 50000
+python -m data_gen.formula_renderer --output data/synthetic --count 50000
 
-# 3. 使用 Qwen3-VL 标注真实图片
-python -m data_gen.qwen_annotator --images path/to/real_images --output data/train
+# 3. （可选）使用 Qwen3-VL 标注真实图片
+python -m data_gen.qwen_annotator annotate --backend transformers --images path/to/real_images --output data/annotated/labels.jsonl
 
-# 4. 构建最终数据集
-python -m data_gen.build_dataset --data-dir data --output data/processed
+# 4. 构建最终数据集（若没有第 3 步，可去掉 --annotated-dir）
+python -m data_gen.build_dataset --synthetic-dir data/synthetic --external-dir data/external --annotated-dir data/annotated --output data/processed
 ```
 
-### 模型训练
+#### 2) 模型训练
 
 训练脚本自动检测最佳设备（CUDA > MPS > CPU），也可通过 `--device` 手动指定。
 
@@ -57,7 +69,7 @@ python -m model.train --config model/configs/mps_train.yaml --resume checkpoints
 python -m model.train --config model/configs/cpu_train.yaml --device cpu
 
 # 评估
-python -m model.evaluate --checkpoint checkpoints/best.pt --data data/test
+python -m model.evaluate --checkpoint checkpoints/best.pt --data data/processed/test
 ```
 
 > 每个配置文件的 `batch_size` 和 `num_workers` 已针对对应设备优化，请选择匹配的配置。
@@ -70,7 +82,7 @@ python -m model.evaluate --checkpoint checkpoints/best.pt --data data/test
 | Apple M1/M2/M3/M4 (MPS) | ~3-5x | Metal Performance Shaders 加速 |
 | CPU | 1x (baseline) | 适合小规模实验 |
 
-### 导出与部署
+#### 3) 导出与部署
 
 ```bash
 # 导出 ONNX
@@ -110,7 +122,7 @@ texer/
 
 | 模块 | 技术 |
 |------|------|
-| 数据生成 | Python, matplotlib, LaTeX, Qwen3-VL-4B-Instruct (vLLM) |
+| 数据生成 | Python, matplotlib, LaTeX, Qwen3-VL-4B-Instruct (Transformers/vLLM) |
 | 模型训练 | PyTorch, HuggingFace Transformers, Swin Transformer |
 | 模型导出 | ONNX, ONNX Runtime, INT8 量化 |
 | 浏览器部署 | TypeScript, ONNX Runtime Web, React |

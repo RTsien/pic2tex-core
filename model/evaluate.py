@@ -11,6 +11,7 @@ Metrics:
 
 import argparse
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Optional
 
@@ -135,6 +136,10 @@ def evaluate_model(
         metrics["bleu"] = compute_bleu(all_predictions, all_references)
         metrics["exact_match"] = compute_exact_match(all_predictions, all_references)
         metrics["num_evaluated"] = len(all_predictions)
+        pred_counter = Counter(all_predictions)
+        most_common_count = pred_counter.most_common(1)[0][1]
+        metrics["unique_prediction_ratio"] = len(pred_counter) / len(all_predictions)
+        metrics["most_common_prediction_fraction"] = most_common_count / len(all_predictions)
 
     return metrics
 

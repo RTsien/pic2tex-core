@@ -1,0 +1,40 @@
+encoder:
+  encoder_type: cnn
+  image_size: 224
+  in_channels: 1
+  cnn_channels: [64, 128, 256, 384]
+  cnn_dropout: 0.1
+
+decoder:
+  vocab_size: 356
+  max_seq_len: 256
+  d_model: 256
+  nhead: 8
+  num_layers: 4
+  dim_feedforward: 1024
+  dropout: 0.1
+
+train:
+  batch_size: 32
+  num_epochs: 50
+  learning_rate: 3.0e-4
+  weight_decay: 0.01
+  warmup_steps: 300
+  label_smoothing: 0.1
+  grad_clip: 1.0
+  fp16: false
+  num_workers: 4
+  save_every: 5
+  eval_every: 1
+  patience: 10
+  checkpoint_dir: checkpoints/cnn_mps
+  log_dir: logs/cnn_mps
+  wandb_project: null
+
+data:
+  train_dir: data/processed/train
+  val_dir: data/processed/val
+  test_dir: data/processed/test
+  vocab_path: model/vocab.json
+  image_size: 224
+  max_seq_len: 256
