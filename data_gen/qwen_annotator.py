@@ -4,11 +4,10 @@ Qwen3-VL annotator: uses Qwen3-VL-4B-Instruct as a teacher model for:
   2. Validating synthetic data quality (round-trip verification)
   3. Generating alternative LaTeX representations for diversity
 
-Supports both vLLM (fast batch inference) and HuggingFace transformers backends.
+Uses HuggingFace transformers backend.
 """
 
 import argparse
-import base64
 import json
 import re
 from pathlib import Path
@@ -38,11 +37,6 @@ ALTERNATIVE_PROMPT = (
 )
 
 
-def _encode_image_base64(image_path: str) -> str:
-    with open(image_path, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8")
-
-
 def _extract_latex(text: str) -> str:
     """Extract LaTeX from model output, stripping common wrappers."""
     text = text.strip()
@@ -52,65 +46,6 @@ def _extract_latex(text: str) -> str:
     if match:
         text = match.group(1)
     return text.strip()
-
-
-class QwenAnnotatorVLLM:
-    """Batch annotator using vLLM for high-throughput inference."""
-
-    def __init__(self, model_id: str = MODEL_ID, tensor_parallel_size: int = 1):
-        from vllm import LLM, SamplingParams
-        self.llm = LLM(
-            model=model_id,
-            trust_remote_code=True,
-            tensor_parallel_size=tensor_parallel_size,
-            max_model_len=4096,
-            dtype="bfloat16",
-        )
-        self.sampling_params = SamplingParams(
-            temperature=0.1,
-            max_tokens=512,
-            top_p=0.95,
-        )
-
-    def annotate_images(self, image_paths: list[str]) -> list[str]:
-        """Annotate a batch of formula images, returning LaTeX strings."""
-        from vllm import TextPrompt
-        prompts = []
-        for img_path in image_paths:
-            b64 = _encode_image_base64(img_path)
-            prompt = {
-                "prompt": f"<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n"
-                          f"<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>\n"
-                          f"{ANNOTATE_PROMPT}<|im_end|>\n"
-                          f"<|im_start|>assistant\n",
-                "multi_modal_data": {
-                    "image": Image.open(img_path).convert("RGB"),
-                },
-            }
-            prompts.append(prompt)
-
-        outputs = self.llm.generate(prompts, self.sampling_params)
-        results = []
-        for output in outputs:
-            text = output.outputs[0].text
-            results.append(_extract_latex(text))
-        return results
-
-    def validate_batch(
-        self, image_paths: list[str], expected_latex: list[str]
-    ) -> list[dict]:
-        """Validate synthetic data by comparing model output with expected LaTeX."""
-        predicted = self.annotate_images(image_paths)
-        results = []
-        for img_path, pred, expected in zip(image_paths, predicted, expected_latex):
-            is_match = _normalize_latex(pred) == _normalize_latex(expected)
-            results.append({
-                "image": img_path,
-                "expected": expected,
-                "predicted": pred,
-                "valid": is_match,
-            })
-        return results
 
 
 class QwenAnnotatorTransformers:
@@ -204,7 +139,6 @@ def _normalize_latex(latex: str) -> str:
 def annotate_directory(
     image_dir: str,
     output_path: str,
-    backend: str = "transformers",
     model_id: str = MODEL_ID,
     batch_size: int = 16,
 ) -> None:
@@ -222,28 +156,15 @@ def annotate_directory(
 
     print(f"Found {len(image_paths)} images to annotate")
 
-    if backend == "vllm":
-        annotator = QwenAnnotatorVLLM(model_id)
-        all_results = []
-        for i in range(0, len(image_paths), batch_size):
-            batch = image_paths[i:i + batch_size]
-            latex_results = annotator.annotate_images(batch)
-            for path, latex in zip(batch, latex_results):
-                all_results.append({
-                    "image": Path(path).name,
-                    "latex": latex,
-                    "category": "real_annotated",
-                })
-    else:
-        annotator = QwenAnnotatorTransformers(model_id)
-        all_results = []
-        for path in tqdm(image_paths, desc="Annotating"):
-            latex = annotator.annotate_single(path)
-            all_results.append({
-                "image": Path(path).name,
-                "latex": latex,
-                "category": "real_annotated",
-            })
+    annotator = QwenAnnotatorTransformers(model_id)
+    all_results = []
+    for path in tqdm(image_paths, desc="Annotating"):
+        latex = annotator.annotate_single(path)
+        all_results.append({
+            "image": Path(path).name,
+            "latex": latex,
+            "category": "real_annotated",
+        })
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -258,7 +179,6 @@ def validate_synthetic_data(
     labels_path: str,
     images_dir: str,
     output_path: str,
-    backend: str = "transformers",
     sample_size: Optional[int] = None,
 ) -> dict:
     """Validate synthetic data by round-trip: image -> Qwen prediction -> compare with label."""
@@ -283,12 +203,8 @@ def validate_synthetic_data(
     image_paths, expected = zip(*existing)
     image_paths, expected = list(image_paths), list(expected)
 
-    if backend == "vllm":
-        annotator = QwenAnnotatorVLLM()
-        predicted = annotator.annotate_images(image_paths)
-    else:
-        annotator = QwenAnnotatorTransformers()
-        predicted = annotator.annotate_images(image_paths)
+    annotator = QwenAnnotatorTransformers()
+    predicted = annotator.annotate_images(image_paths)
 
     valid_count = 0
     results = []
@@ -325,7 +241,6 @@ def main():
     ann = sub.add_parser("annotate", help="Annotate formula images")
     ann.add_argument("--images", required=True, help="Directory of formula images")
     ann.add_argument("--output", required=True, help="Output JSONL path")
-    ann.add_argument("--backend", choices=["vllm", "transformers"], default="transformers")
     ann.add_argument("--model", default=MODEL_ID)
     ann.add_argument("--batch-size", type=int, default=16)
 
@@ -333,7 +248,6 @@ def main():
     val.add_argument("--labels", required=True, help="Labels JSONL path")
     val.add_argument("--images", required=True, help="Images directory")
     val.add_argument("--output", required=True, help="Validation results output")
-    val.add_argument("--backend", choices=["vllm", "transformers"], default="transformers")
     val.add_argument("--sample-size", type=int, default=None)
 
     args = parser.parse_args()
@@ -341,14 +255,12 @@ def main():
     if args.command == "annotate":
         annotate_directory(
             args.images, args.output,
-            backend=args.backend,
             model_id=args.model,
             batch_size=args.batch_size,
         )
     elif args.command == "validate":
         validate_synthetic_data(
             args.labels, args.images, args.output,
-            backend=args.backend,
             sample_size=args.sample_size,
         )
     else:
