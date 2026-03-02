@@ -43,12 +43,12 @@ PY
 
 case "$DEVICE_TYPE" in
     cuda)
-        TRAIN_CONFIG="model/configs/pretrain.yaml"
-        BEST_CHECKPOINT="checkpoints/pretrain/best.pt"
+        TRAIN_CONFIG="model/configs/swin_small_cuda_train.yaml"
+        BEST_CHECKPOINT="checkpoints/swin_small_cuda/best.pt"
         ;;
     mps)
-        TRAIN_CONFIG="model/configs/mps_train.yaml"
-        BEST_CHECKPOINT="checkpoints/best.pt"
+        TRAIN_CONFIG="model/configs/swin_small_mps_train.yaml"
+        BEST_CHECKPOINT="checkpoints/swin_small_mps/best.pt"
         ;;
     *)
         TRAIN_CONFIG="model/configs/cpu_train.yaml"

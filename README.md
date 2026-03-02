@@ -28,7 +28,7 @@ pip install -r requirements.txt
 bash scripts/run_pipeline.sh
 ```
 
-该脚本会依次完成：下载数据、生成合成数据、构建数据集、训练、评估、导出 ONNX。
+该脚本会依次完成：下载数据（并准备 external `labels.jsonl`）、生成合成数据、构建数据集、训练、评估、导出 ONNX。
 
 ### 分步执行（需要自定义流程时）
 
@@ -53,23 +53,26 @@ python -m data_gen.build_dataset --synthetic-dir data/synthetic --external-dir d
 训练脚本自动检测最佳设备（CUDA > MPS > CPU），也可通过 `--device` 手动指定。
 
 ```bash
-# Mac M 芯片加速训练（自动检测 MPS，batch_size=32）
-python -m model.train --config model/configs/mps_train.yaml
+# Mac M 芯片加速训练（Swin-small，batch_size=32）
+python -m model.train --config model/configs/swin_small_mps_train.yaml
 
-# CUDA GPU 训练（支持 FP16 混合精度，batch_size=64）
-python -m model.train --config model/configs/pretrain.yaml
+# CUDA GPU 训练（Swin-small，支持 FP16 混合精度，batch_size=32）
+python -m model.train --config model/configs/swin_small_cuda_train.yaml
 
 # CPU 训练（batch_size=16，适合无 GPU 环境）
 python -m model.train --config model/configs/cpu_train.yaml
 
 # 从 checkpoint 恢复训练（config 需与原训练一致）
-python -m model.train --config model/configs/mps_train.yaml --resume checkpoints/best.pt
+python -m model.train --config model/configs/swin_small_mps_train.yaml --resume checkpoints/swin_small_mps/best.pt
 
 # 手动指定设备（覆盖自动检测）
 python -m model.train --config model/configs/cpu_train.yaml --device cpu
 
 # 评估
-python -m model.evaluate --checkpoint checkpoints/best.pt --data data/processed/test
+python -m model.evaluate --checkpoint checkpoints/swin_small_mps/best.pt --data data/processed/test
+
+# 评估（CUDA 训练产物）
+python -m model.evaluate --checkpoint checkpoints/swin_small_cuda/best.pt --data data/processed/test
 ```
 
 > 每个配置文件的 `batch_size` 和 `num_workers` 已针对对应设备优化，请选择匹配的配置。
@@ -86,7 +89,7 @@ python -m model.evaluate --checkpoint checkpoints/best.pt --data data/processed/
 
 ```bash
 # 导出 ONNX
-python -m model.export_onnx --checkpoint checkpoints/best.pt --output deploy/web/public/model
+python -m model.export_onnx --checkpoint checkpoints/swin_small_mps/best.pt --output deploy/web/public/model
 
 # 启动 Web 应用
 cd deploy/web && npm install && npm run dev
