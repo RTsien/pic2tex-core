@@ -62,13 +62,14 @@ class DecoderWrapper(nn.Module):
 def export_encoder(
     model: TeXerModel,
     output_path: str,
-    image_size: int = 224,
+    image_height: int = 224,
+    image_width: int = 224,
     opset_version: int = 17,
 ) -> None:
     encoder = EncoderWrapper(model.encoder)
     encoder.eval()
 
-    dummy_image = torch.randn(1, 1, image_size, image_size)
+    dummy_image = torch.randn(1, 1, image_height, image_width)
 
     torch.onnx.export(
         encoder,
@@ -136,13 +137,14 @@ def verify_onnx(
     encoder_path: str,
     decoder_path: str,
     model: TeXerModel,
-    image_size: int = 224,
+    image_height: int = 224,
+    image_width: int = 224,
 ) -> bool:
     """Verify ONNX model outputs match PyTorch model outputs."""
     import onnxruntime as ort
 
     model.eval()
-    dummy_image = torch.randn(1, 1, image_size, image_size)
+    dummy_image = torch.randn(1, 1, image_height, image_width)
     dummy_input_ids = torch.randint(0, 100, (1, 10))
 
     with torch.no_grad():
@@ -198,8 +200,14 @@ def export_full(
     encoder_path = str(out / "encoder.onnx")
     decoder_path = str(out / "decoder.onnx")
 
+    enc_h, enc_w = TexerConfig.resolve_hw(
+        config.encoder.image_height,
+        config.encoder.image_width,
+        config.encoder.image_size,
+    )
+
     print("=== Exporting encoder ===")
-    export_encoder(model, encoder_path, config.encoder.image_size)
+    export_encoder(model, encoder_path, enc_h, enc_w)
 
     print("\n=== Exporting decoder ===")
     export_decoder(model, decoder_path, config.decoder.max_seq_len)
@@ -213,12 +221,13 @@ def export_full(
 
     if verify:
         print("\n=== Verifying ONNX models ===")
-        verify_onnx(encoder_path, decoder_path, model, config.encoder.image_size)
+        verify_onnx(encoder_path, decoder_path, model, enc_h, enc_w)
 
     tokenizer.save(str(out / "vocab.json"))
 
     model_info = {
-        "image_size": config.encoder.image_size,
+        "image_height": enc_h,
+        "image_width": enc_w,
         "max_seq_len": config.decoder.max_seq_len,
         "vocab_size": config.decoder.vocab_size,
         "in_channels": config.encoder.in_channels,

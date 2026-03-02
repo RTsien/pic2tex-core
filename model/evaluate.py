@@ -60,8 +60,10 @@ def evaluate_model(
     fp16: bool = False,
     amp_cfg: Optional[dict] = None,
     max_generate: int = 200,
+    max_len: int = 512,
     beam_size: int = 1,
     length_penalty: float = 0.0,
+    non_blocking: bool = False,
 ) -> dict:
     """
     Evaluate model on a dataset.
@@ -86,10 +88,10 @@ def evaluate_model(
     gen_count = 0
 
     for batch in tqdm(dataloader, desc="Evaluating", leave=False):
-        images = batch["images"].to(device)
-        input_ids = batch["input_ids"].to(device)
-        target_ids = batch["target_ids"].to(device)
-        padding_mask = batch["padding_mask"].to(device)
+        images = batch["images"].to(device, non_blocking=non_blocking)
+        input_ids = batch["input_ids"].to(device, non_blocking=non_blocking)
+        target_ids = batch["target_ids"].to(device, non_blocking=non_blocking)
+        padding_mask = batch["padding_mask"].to(device, non_blocking=non_blocking)
 
         with autocast(
             device_type=amp_cfg["amp_device_type"],
@@ -115,7 +117,7 @@ def evaluate_model(
                 images,
                 bos_id=tokenizer.bos_id,
                 eos_id=tokenizer.eos_id,
-                max_len=512,
+                max_len=max_len,
                 beam_size=beam_size,
                 length_penalty=length_penalty,
             )
@@ -155,6 +157,7 @@ def main():
     parser.add_argument("--config", type=str, help="Config YAML path")
     parser.add_argument("--output", type=str, help="Output results JSON path")
     parser.add_argument("--max-generate", type=int, default=500)
+    parser.add_argument("--max-len", type=int, default=512)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--beam-size", type=int, default=1)
     parser.add_argument("--length-penalty", type=float, default=0.0)
@@ -174,6 +177,11 @@ def main():
     if Path(config.data.vocab_path).exists():
         tokenizer = LaTeXTokenizer.load(config.data.vocab_path)
     config.decoder.vocab_size = tokenizer.vocab_size
+    img_h, img_w = TexerConfig.resolve_hw(
+        config.data.image_height,
+        config.data.image_width,
+        config.data.image_size,
+    )
 
     model = build_model(config)
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
@@ -183,10 +191,12 @@ def main():
     test_loader = create_dataloader(
         args.data, tokenizer,
         batch_size=args.batch_size,
-        image_size=config.data.image_size,
+        image_height=img_h,
+        image_width=img_w,
         max_seq_len=config.data.max_seq_len,
         keep_aspect_ratio=config.data.keep_aspect_ratio,
         augment=False, shuffle=False,
+        preprocessed_images=config.data.preprocessed_images,
         num_workers=config.train.num_workers,
     )
 
@@ -199,8 +209,10 @@ def main():
         model, test_loader, criterion, device,
         tokenizer=tokenizer,
         max_generate=args.max_generate,
+        max_len=args.max_len,
         beam_size=args.beam_size,
         length_penalty=args.length_penalty,
+        non_blocking=(device.type == "cuda"),
     )
 
     print("\nEvaluation Results:")

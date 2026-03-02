@@ -32,6 +32,9 @@ train:
   num_workers: 2
   save_every: 5
   eval_every: 1
+  eval_generate_start_epoch: 5
+  val_max_generate: 64
+  val_max_len: 256
   patience: 8
   checkpoint_dir: checkpoints
   log_dir: logs

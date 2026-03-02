@@ -17,25 +17,26 @@ from model.tokenizer import LaTeXTokenizer
 class ResizeWithPad:
     """Resize with optional aspect-ratio preserving white padding."""
 
-    def __init__(self, target_size: int, keep_aspect_ratio: bool = True):
-        self.target_size = target_size
+    def __init__(self, target_height: int, target_width: int, keep_aspect_ratio: bool = True):
+        self.target_height = target_height
+        self.target_width = target_width
         self.keep_aspect_ratio = keep_aspect_ratio
 
     def __call__(self, img: Image.Image) -> Image.Image:
         if not self.keep_aspect_ratio:
-            return img.resize((self.target_size, self.target_size), Image.BILINEAR)
+            return img.resize((self.target_width, self.target_height), Image.BILINEAR)
 
         w, h = img.size
         if w == 0 or h == 0:
-            return img.resize((self.target_size, self.target_size), Image.BILINEAR)
+            return img.resize((self.target_width, self.target_height), Image.BILINEAR)
 
-        scale = min(self.target_size / w, self.target_size / h)
+        scale = min(self.target_width / w, self.target_height / h)
         new_w = max(1, int(round(w * scale)))
         new_h = max(1, int(round(h * scale)))
         resized = img.resize((new_w, new_h), Image.BILINEAR)
 
-        canvas = Image.new("L", (self.target_size, self.target_size), color=255)
-        offset = ((self.target_size - new_w) // 2, (self.target_size - new_h) // 2)
+        canvas = Image.new("L", (self.target_width, self.target_height), color=255)
+        offset = ((self.target_width - new_w) // 2, (self.target_height - new_h) // 2)
         canvas.paste(resized, offset)
         return canvas
 
@@ -47,14 +48,17 @@ class FormulaDataset(Dataset):
         self,
         data_dir: str,
         tokenizer: LaTeXTokenizer,
-        image_size: int = 224,
+        image_height: int = 224,
+        image_width: int = 224,
         max_seq_len: int = 512,
         keep_aspect_ratio: bool = True,
         augment: bool = False,
+        preprocessed_images: bool = False,
     ):
         self.data_dir = Path(data_dir)
         self.tokenizer = tokenizer
         self.max_seq_len = max_seq_len
+        self.preprocessed_images = preprocessed_images
 
         self.samples = []
         self.sample_lengths: list[int] = []
@@ -75,29 +79,37 @@ class FormulaDataset(Dataset):
                         })
                         self.sample_lengths.append(max(len(token_ids) - 1, 1))
 
-        resize_op = ResizeWithPad(image_size, keep_aspect_ratio=keep_aspect_ratio)
-
-        if augment:
+        if preprocessed_images:
+            # Images are already grayscale and resized offline.
             self.transform = transforms.Compose([
-                transforms.Grayscale(num_output_channels=1),
-                resize_op,
-                transforms.RandomAffine(
-                    degrees=2,
-                    translate=(0.05, 0.05),
-                    scale=(0.95, 1.05),
-                    fill=255,
-                ),
-                transforms.ColorJitter(brightness=0.2, contrast=0.2),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.5], std=[0.5]),
             ])
         else:
-            self.transform = transforms.Compose([
-                transforms.Grayscale(num_output_channels=1),
-                resize_op,
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.5], std=[0.5]),
-            ])
+            resize_op = ResizeWithPad(
+                target_height=image_height,
+                target_width=image_width,
+                keep_aspect_ratio=keep_aspect_ratio,
+            )
+            if augment:
+                self.transform = transforms.Compose([
+                    resize_op,
+                    transforms.RandomAffine(
+                        degrees=2,
+                        translate=(0.05, 0.05),
+                        scale=(0.95, 1.05),
+                        fill=255,
+                    ),
+                    transforms.ColorJitter(brightness=0.2, contrast=0.2),
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.5], std=[0.5]),
+                ])
+            else:
+                self.transform = transforms.Compose([
+                    resize_op,
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.5], std=[0.5]),
+                ])
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -105,7 +117,11 @@ class FormulaDataset(Dataset):
     def __getitem__(self, idx: int) -> dict:
         sample = self.samples[idx]
 
-        image = Image.open(sample["image_path"]).convert("RGB")
+        with Image.open(sample["image_path"]) as img:
+            # Palette + transparency PNGs trigger warnings when converted directly.
+            if img.mode == "P" and "transparency" in img.info:
+                img = img.convert("RGBA")
+            image = img.convert("L")
         image = self.transform(image)
 
         token_ids = sample["token_ids"]
@@ -151,7 +167,8 @@ def create_dataloader(
     data_dir: str,
     tokenizer: LaTeXTokenizer,
     batch_size: int = 64,
-    image_size: int = 224,
+    image_height: int = 224,
+    image_width: int = 224,
     max_seq_len: int = 512,
     keep_aspect_ratio: bool = True,
     augment: bool = False,
@@ -160,14 +177,17 @@ def create_dataloader(
     long_formula_oversample_factor: float = 1.0,
     num_workers: int = 4,
     pin_memory: bool = False,
+    preprocessed_images: bool = False,
 ) -> DataLoader:
     dataset = FormulaDataset(
         data_dir=data_dir,
         tokenizer=tokenizer,
-        image_size=image_size,
+        image_height=image_height,
+        image_width=image_width,
         max_seq_len=max_seq_len,
         keep_aspect_ratio=keep_aspect_ratio,
         augment=augment,
+        preprocessed_images=preprocessed_images,
     )
     sampler = None
     use_weighted_sampling = (
@@ -186,13 +206,18 @@ def create_dataloader(
             replacement=True,
         )
 
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=shuffle if sampler is None else False,
-        sampler=sampler,
-        num_workers=num_workers,
-        collate_fn=collate_fn,
-        pin_memory=pin_memory,
-        drop_last=shuffle or sampler is not None,
-    )
+    dataloader_kwargs = {
+        "dataset": dataset,
+        "batch_size": batch_size,
+        "shuffle": shuffle if sampler is None else False,
+        "sampler": sampler,
+        "num_workers": num_workers,
+        "collate_fn": collate_fn,
+        "pin_memory": pin_memory,
+        "drop_last": shuffle or sampler is not None,
+    }
+    if num_workers > 0:
+        dataloader_kwargs["persistent_workers"] = True
+        dataloader_kwargs["prefetch_factor"] = 2
+
+    return DataLoader(**dataloader_kwargs)

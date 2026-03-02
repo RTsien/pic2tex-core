@@ -32,6 +32,9 @@ train:
   num_workers: 4
   save_every: 5
   eval_every: 1
+  eval_generate_start_epoch: 5
+  val_max_generate: 64
+  val_max_len: 512
   patience: 10
   checkpoint_dir: checkpoints/finetune
   log_dir: logs/finetune

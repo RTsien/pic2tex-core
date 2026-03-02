@@ -1,6 +1,8 @@
 encoder:
   encoder_type: swin
-  image_size: 224
+  image_size: 192
+  image_height: 192
+  image_width: 384
   patch_size: 4
   in_channels: 1
   embed_dim: 48
@@ -22,7 +24,7 @@ decoder:
   dropout: 0.1
 
 train:
-  batch_size: 32
+  batch_size: 64
   num_epochs: 50
   learning_rate: 3.0e-4
   weight_decay: 0.01
@@ -30,9 +32,12 @@ train:
   label_smoothing: 0.1
   grad_clip: 1.0
   fp16: true
-  num_workers: 4
+  num_workers: 12
   save_every: 5
-  eval_every: 1
+  eval_every: 2
+  eval_generate_start_epoch: 5
+  val_max_generate: 64
+  val_max_len: 256
   patience: 10
   checkpoint_dir: checkpoints/swin_small_cuda
   log_dir: logs/swin_small_cuda
@@ -43,5 +48,8 @@ data:
   val_dir: data/processed/val
   test_dir: data/processed/test
   vocab_path: model/vocab.json
-  image_size: 224
+  image_size: 192
+  image_height: 192
+  image_width: 384
   max_seq_len: 256
+  preprocessed_images: true

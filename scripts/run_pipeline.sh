@@ -20,7 +20,7 @@ echo "[2/6] Generating synthetic formula images..."
     --output data/synthetic \
     --count 50000
 
-echo "[3/6] Building combined dataset..."
+echo "[3/6] Building and preprocessing dataset..."
 "$PYTHON_BIN" -m data_gen.build_dataset \
     --synthetic-dir data/synthetic \
     --external-dir data/external \
@@ -55,6 +55,33 @@ case "$DEVICE_TYPE" in
         BEST_CHECKPOINT="checkpoints/best.pt"
         ;;
 esac
+
+read -r PREPROCESS_HEIGHT PREPROCESS_WIDTH <<< "$("$PYTHON_BIN" - "$TRAIN_CONFIG" <<'PY'
+import sys
+import yaml
+
+config_path = sys.argv[1]
+with open(config_path, "r", encoding="utf-8") as f:
+    cfg = yaml.safe_load(f) or {}
+
+data_cfg = cfg.get("data", {}) or {}
+height = data_cfg.get("image_height", data_cfg.get("image_size"))
+width = data_cfg.get("image_width", data_cfg.get("image_size"))
+if height is None or width is None:
+    raise SystemExit(f"Missing image size in config: {config_path}")
+
+print(f"{int(height)} {int(width)}")
+PY
+)"
+"$PYTHON_BIN" scripts/preprocess_images.py \
+    --dataset-root data/processed \
+    --splits train,val,test \
+    --image-height "$PREPROCESS_HEIGHT" \
+    --image-width "$PREPROCESS_WIDTH" \
+    --keep-aspect-ratio \
+    --workers 12 \
+    --autocontrast-cutoff 0 \
+    --unsharp-percent 0
 
 echo "[4/6] Training model (device: $DEVICE_TYPE, config: $TRAIN_CONFIG)..."
 "$PYTHON_BIN" -m model.train \

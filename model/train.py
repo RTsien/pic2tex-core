@@ -81,6 +81,7 @@ def train_epoch(
     device: torch.device,
     amp_cfg: dict,
     grad_clip: float = 1.0,
+    non_blocking: bool = False,
 ) -> dict:
     model.train()
     total_loss = 0.0
@@ -88,10 +89,10 @@ def train_epoch(
     correct_tokens = 0
 
     for batch in tqdm(dataloader, desc="Training", leave=False):
-        images = batch["images"].to(device)
-        input_ids = batch["input_ids"].to(device)
-        target_ids = batch["target_ids"].to(device)
-        padding_mask = batch["padding_mask"].to(device)
+        images = batch["images"].to(device, non_blocking=non_blocking)
+        input_ids = batch["input_ids"].to(device, non_blocking=non_blocking)
+        target_ids = batch["target_ids"].to(device, non_blocking=non_blocking)
+        padding_mask = batch["padding_mask"].to(device, non_blocking=non_blocking)
 
         optimizer.zero_grad()
 
@@ -172,6 +173,9 @@ def load_checkpoint(
 def train(config: TexerConfig, resume: str = None, force_device: str = None):
     device = select_device(force_device)
     amp_cfg = get_amp_config(device, config.train.fp16)
+    if device.type == "cuda":
+        # Fixed image size benefits from cuDNN autotune.
+        torch.backends.cudnn.benchmark = True
     print(f"Using device: {device}")
     if device.type == "mps":
         print("  Apple MPS acceleration enabled (Metal Performance Shaders)")
@@ -190,13 +194,20 @@ def train(config: TexerConfig, resume: str = None, force_device: str = None):
     print(f"Model parameters: {params['total']:,} ({params['total_mb']:.1f} MB)")
 
     pin = device.type == "cuda"
+    img_h, img_w = TexerConfig.resolve_hw(
+        config.data.image_height,
+        config.data.image_width,
+        config.data.image_size,
+    )
     train_loader = create_dataloader(
         config.data.train_dir, tokenizer,
         batch_size=config.train.batch_size,
-        image_size=config.data.image_size,
+        image_height=img_h,
+        image_width=img_w,
         max_seq_len=config.data.max_seq_len,
         keep_aspect_ratio=config.data.keep_aspect_ratio,
         augment=True, shuffle=True,
+        preprocessed_images=config.data.preprocessed_images,
         long_formula_min_tokens=config.train.long_formula_min_tokens,
         long_formula_oversample_factor=config.train.long_formula_oversample_factor,
         num_workers=config.train.num_workers,
@@ -205,10 +216,12 @@ def train(config: TexerConfig, resume: str = None, force_device: str = None):
     val_loader = create_dataloader(
         config.data.val_dir, tokenizer,
         batch_size=config.train.batch_size,
-        image_size=config.data.image_size,
+        image_height=img_h,
+        image_width=img_w,
         max_seq_len=config.data.max_seq_len,
         keep_aspect_ratio=config.data.keep_aspect_ratio,
         augment=False, shuffle=False,
+        preprocessed_images=config.data.preprocessed_images,
         num_workers=config.train.num_workers,
         pin_memory=pin,
     )
@@ -292,6 +305,7 @@ def train(config: TexerConfig, resume: str = None, force_device: str = None):
             criterion, device,
             amp_cfg=amp_cfg,
             grad_clip=config.train.grad_clip,
+            non_blocking=pin,
         )
 
         epoch_time = time.time() - t0
@@ -303,11 +317,20 @@ def train(config: TexerConfig, resume: str = None, force_device: str = None):
         )
 
         if (epoch + 1) % config.train.eval_every == 0:
+            enable_generation_metrics = (epoch + 1) >= config.train.eval_generate_start_epoch
             val_metrics = evaluate_model(
                 model, val_loader, criterion, device,
-                tokenizer=tokenizer,
+                tokenizer=tokenizer if enable_generation_metrics else None,
                 amp_cfg=amp_cfg,
+                max_generate=config.train.val_max_generate,
+                max_len=config.train.val_max_len,
+                non_blocking=pin,
             )
+            if not enable_generation_metrics:
+                print(
+                    "  Skipping generation-based metrics "
+                    f"(BLEU/EM) until epoch {config.train.eval_generate_start_epoch}."
+                )
             print(
                 f"  val_loss: {val_metrics['loss']:.4f} "
                 f"| val_acc: {val_metrics['accuracy']:.4f} "

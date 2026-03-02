@@ -12,6 +12,8 @@ from pathlib import Path
 class EncoderConfig:
     encoder_type: str = "swin"  # "swin" or "cnn"
     image_size: int = 224
+    image_height: Optional[int] = None
+    image_width: Optional[int] = None
     patch_size: int = 4
     in_channels: int = 1  # grayscale
     embed_dim: int = 64
@@ -50,6 +52,9 @@ class TrainConfig:
     num_workers: int = 4
     save_every: int = 5
     eval_every: int = 1
+    eval_generate_start_epoch: int = 1
+    val_max_generate: int = 200
+    val_max_len: int = 512
     patience: int = 10  # early stopping
     long_formula_min_tokens: int = 120
     long_formula_oversample_factor: float = 1.0
@@ -65,8 +70,11 @@ class DataConfig:
     test_dir: str = "data/processed/test"
     vocab_path: str = "model/vocab.json"
     image_size: int = 224
+    image_height: Optional[int] = None
+    image_width: Optional[int] = None
     max_seq_len: int = 512
     keep_aspect_ratio: bool = True
+    preprocessed_images: bool = False
 
 
 @dataclass
@@ -75,6 +83,12 @@ class TexerConfig:
     decoder: DecoderConfig = field(default_factory=DecoderConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
     data: DataConfig = field(default_factory=DataConfig)
+
+    @staticmethod
+    def resolve_hw(height: Optional[int], width: Optional[int], fallback: int) -> tuple[int, int]:
+        h = int(height) if height is not None else int(fallback)
+        w = int(width) if width is not None else int(fallback)
+        return h, w
 
     def save(self, path: str) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)

@@ -32,6 +32,9 @@ train:
   num_workers: 4
   save_every: 10
   eval_every: 1
+  eval_generate_start_epoch: 5
+  val_max_generate: 64
+  val_max_len: 512
   patience: 15
   checkpoint_dir: checkpoints/pretrain
   log_dir: logs/pretrain

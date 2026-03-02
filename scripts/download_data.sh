@@ -60,8 +60,56 @@ fi
 
 if [ -d "$DATA_DIR/formula_images" ]; then
     echo "Normalizing image layout to $DATA_DIR/images ..."
-    mv "$DATA_DIR/formula_images"/*.png "$DATA_DIR/images"/ 2>/dev/null || true
-    rmdir "$DATA_DIR/formula_images" 2>/dev/null || true
+    SRC_PNG_COUNT="$("$PYTHON_BIN" - <<'PY'
+import os
+from pathlib import Path
+
+data_dir = Path(os.environ["DATA_DIR"]).resolve()
+src = data_dir / "formula_images"
+print(sum(1 for _ in src.glob("*.png")))
+PY
+)"
+
+    if command -v rsync >/dev/null 2>&1; then
+        # Avoid shell glob expansion limits with large file counts.
+        rsync -a "$DATA_DIR/formula_images/" "$DATA_DIR/images/"
+    else
+        "$PYTHON_BIN" - <<'PY'
+import os
+import shutil
+from pathlib import Path
+
+data_dir = Path(os.environ["DATA_DIR"]).resolve()
+src = data_dir / "formula_images"
+dst = data_dir / "images"
+dst.mkdir(parents=True, exist_ok=True)
+
+for img_path in src.glob("*.png"):
+    shutil.copy2(img_path, dst / img_path.name)
+PY
+    fi
+
+    DST_PNG_COUNT="$("$PYTHON_BIN" - <<'PY'
+import os
+from pathlib import Path
+
+data_dir = Path(os.environ["DATA_DIR"]).resolve()
+dst = data_dir / "images"
+print(sum(1 for _ in dst.glob("*.png")))
+PY
+)"
+
+    if [ "$SRC_PNG_COUNT" -gt 0 ] && [ "$DST_PNG_COUNT" -eq 0 ]; then
+        echo "ERROR: image normalization failed (source_png=$SRC_PNG_COUNT, destination_png=$DST_PNG_COUNT)." >&2
+        echo "ERROR: please check disk space/permissions and rerun scripts/download_data.sh." >&2
+        exit 1
+    fi
+    if [ "$SRC_PNG_COUNT" -gt "$DST_PNG_COUNT" ]; then
+        echo "WARNING: image normalization incomplete (source_png=$SRC_PNG_COUNT, destination_png=$DST_PNG_COUNT)." >&2
+        echo "WARNING: downstream dataset build may miss external samples." >&2
+    else
+        echo "Image normalization check passed (source_png=$SRC_PNG_COUNT, destination_png=$DST_PNG_COUNT)."
+    fi
 fi
 
 echo "=== Preparing external labels ==="
