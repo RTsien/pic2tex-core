@@ -60,6 +60,8 @@ def evaluate_model(
     fp16: bool = False,
     amp_cfg: Optional[dict] = None,
     max_generate: int = 200,
+    beam_size: int = 1,
+    length_penalty: float = 0.0,
 ) -> dict:
     """
     Evaluate model on a dataset.
@@ -114,6 +116,8 @@ def evaluate_model(
                 bos_id=tokenizer.bos_id,
                 eos_id=tokenizer.eos_id,
                 max_len=512,
+                beam_size=beam_size,
+                length_penalty=length_penalty,
             )
             for i, gen_ids in enumerate(generated):
                 if gen_count >= max_generate:
@@ -152,6 +156,8 @@ def main():
     parser.add_argument("--output", type=str, help="Output results JSON path")
     parser.add_argument("--max-generate", type=int, default=500)
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--beam-size", type=int, default=1)
+    parser.add_argument("--length-penalty", type=float, default=0.0)
     parser.add_argument("--device", type=str, choices=["cuda", "mps", "cpu"],
                         help="Force device (default: auto-detect)")
     args = parser.parse_args()
@@ -179,6 +185,7 @@ def main():
         batch_size=args.batch_size,
         image_size=config.data.image_size,
         max_seq_len=config.data.max_seq_len,
+        keep_aspect_ratio=config.data.keep_aspect_ratio,
         augment=False, shuffle=False,
         num_workers=config.train.num_workers,
     )
@@ -192,6 +199,8 @@ def main():
         model, test_loader, criterion, device,
         tokenizer=tokenizer,
         max_generate=args.max_generate,
+        beam_size=args.beam_size,
+        length_penalty=args.length_penalty,
     )
 
     print("\nEvaluation Results:")

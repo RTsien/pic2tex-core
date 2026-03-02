@@ -51,6 +51,8 @@ class TrainConfig:
     save_every: int = 5
     eval_every: int = 1
     patience: int = 10  # early stopping
+    long_formula_min_tokens: int = 120
+    long_formula_oversample_factor: float = 1.0
     checkpoint_dir: str = "checkpoints"
     log_dir: str = "logs"
     wandb_project: Optional[str] = None
@@ -64,6 +66,7 @@ class DataConfig:
     vocab_path: str = "model/vocab.json"
     image_size: int = 224
     max_seq_len: int = 512
+    keep_aspect_ratio: bool = True
 
 
 @dataclass

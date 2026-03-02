@@ -552,30 +552,91 @@ class TeXerModel(nn.Module):
         eos_id: int,
         max_len: int = 512,
         temperature: float = 1.0,
+        beam_size: int = 1,
+        length_penalty: float = 0.0,
     ) -> list[list[int]]:
-        """Autoregressive greedy decoding."""
+        """Autoregressive decoding with optional beam search."""
         self.eval()
         B = images.size(0)
         memory = self.encoder(images)
 
-        sequences = torch.full((B, 1), bos_id, dtype=torch.long, device=images.device)
+        if beam_size <= 1:
+            sequences = torch.full((B, 1), bos_id, dtype=torch.long, device=images.device)
 
-        for _ in range(max_len - 1):
-            logits = self.decoder(sequences, memory)
-            next_logits = logits[:, -1, :] / temperature
-            next_token = next_logits.argmax(dim=-1, keepdim=True)
-            sequences = torch.cat([sequences, next_token], dim=1)
+            for _ in range(max_len - 1):
+                logits = self.decoder(sequences, memory)
+                next_logits = logits[:, -1, :] / temperature
+                next_token = next_logits.argmax(dim=-1, keepdim=True)
+                sequences = torch.cat([sequences, next_token], dim=1)
 
-            if (next_token == eos_id).all():
-                break
+                if (next_token == eos_id).all():
+                    break
 
-        result = []
-        for seq in sequences:
-            tokens = seq.tolist()
+            result = []
+            for seq in sequences:
+                tokens = seq.tolist()
+                if eos_id in tokens:
+                    tokens = tokens[:tokens.index(eos_id) + 1]
+                result.append(tokens)
+            return result
+
+        def normalized_score(score: float, seq_len: int) -> float:
+            if length_penalty <= 0.0:
+                return score
+            return score / (float(seq_len) ** length_penalty)
+
+        results: list[list[int]] = []
+        beam_size = max(int(beam_size), 1)
+
+        for b in range(B):
+            memory_b = memory[b:b + 1]
+            beams: list[tuple[torch.Tensor, float, bool]] = [
+                (torch.tensor([bos_id], dtype=torch.long, device=images.device), 0.0, False)
+            ]
+
+            for _ in range(max_len - 1):
+                all_candidates: list[tuple[torch.Tensor, float, bool]] = []
+                all_finished = True
+
+                for seq, score, ended in beams:
+                    if ended:
+                        all_candidates.append((seq, score, True))
+                        continue
+
+                    all_finished = False
+                    logits = self.decoder(seq.unsqueeze(0), memory_b)
+                    next_logits = logits[:, -1, :] / temperature
+                    log_probs = F.log_softmax(next_logits, dim=-1).squeeze(0)
+                    top_log_probs, top_ids = torch.topk(log_probs, k=beam_size, dim=-1)
+
+                    for k in range(beam_size):
+                        token_id = int(top_ids[k].item())
+                        token_score = float(top_log_probs[k].item())
+                        new_seq = torch.cat(
+                            [seq, torch.tensor([token_id], dtype=torch.long, device=seq.device)],
+                            dim=0,
+                        )
+                        all_candidates.append((new_seq, score + token_score, token_id == eos_id))
+
+                beams = sorted(
+                    all_candidates,
+                    key=lambda x: normalized_score(x[1], int(x[0].numel())),
+                    reverse=True,
+                )[:beam_size]
+
+                if all_finished or all(ended for _, _, ended in beams):
+                    break
+
+            best_seq, _, _ = max(
+                beams,
+                key=lambda x: normalized_score(x[1], int(x[0].numel())),
+            )
+            tokens = best_seq.tolist()
             if eos_id in tokens:
                 tokens = tokens[:tokens.index(eos_id) + 1]
-            result.append(tokens)
-        return result
+            results.append(tokens)
+
+        return results
 
     def count_parameters(self) -> dict:
         enc_params = sum(p.numel() for p in self.encoder.parameters())

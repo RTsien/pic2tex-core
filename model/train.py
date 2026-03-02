@@ -195,7 +195,10 @@ def train(config: TexerConfig, resume: str = None, force_device: str = None):
         batch_size=config.train.batch_size,
         image_size=config.data.image_size,
         max_seq_len=config.data.max_seq_len,
+        keep_aspect_ratio=config.data.keep_aspect_ratio,
         augment=True, shuffle=True,
+        long_formula_min_tokens=config.train.long_formula_min_tokens,
+        long_formula_oversample_factor=config.train.long_formula_oversample_factor,
         num_workers=config.train.num_workers,
         pin_memory=pin,
     )
@@ -204,6 +207,7 @@ def train(config: TexerConfig, resume: str = None, force_device: str = None):
         batch_size=config.train.batch_size,
         image_size=config.data.image_size,
         max_seq_len=config.data.max_seq_len,
+        keep_aspect_ratio=config.data.keep_aspect_ratio,
         augment=False, shuffle=False,
         num_workers=config.train.num_workers,
         pin_memory=pin,
@@ -272,6 +276,12 @@ def train(config: TexerConfig, resume: str = None, force_device: str = None):
     print(f"Total epochs: {config.train.num_epochs}")
     print(f"Batch size: {config.train.batch_size}")
     print(f"Learning rate: {config.train.learning_rate}")
+    if config.train.long_formula_oversample_factor > 1.0:
+        print(
+            "Long-formula oversampling: "
+            f"x{config.train.long_formula_oversample_factor:.2f} "
+            f"for length >= {config.train.long_formula_min_tokens}"
+        )
     print()
 
     for epoch in range(start_epoch, config.train.num_epochs):
