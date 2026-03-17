@@ -47,12 +47,12 @@ case "$DEVICE_TYPE" in
         BEST_CHECKPOINT="checkpoints/swin_small_cuda/best.pt"
         ;;
     mps)
-        TRAIN_CONFIG="model/configs/swin_small_mps_train.yaml"
-        BEST_CHECKPOINT="checkpoints/swin_small_mps/best.pt"
+        TRAIN_CONFIG="model/configs/swin_small_cuda_train.yaml"
+        BEST_CHECKPOINT="checkpoints/swin_small_cuda/best.pt"
         ;;
     *)
-        TRAIN_CONFIG="model/configs/cpu_train.yaml"
-        BEST_CHECKPOINT="checkpoints/best.pt"
+        TRAIN_CONFIG="model/configs/cnn_cuda_train.yaml"
+        BEST_CHECKPOINT="checkpoints/cnn_cuda/best.pt"
         ;;
 esac
 
@@ -65,10 +65,10 @@ with open(config_path, "r", encoding="utf-8") as f:
     cfg = yaml.safe_load(f) or {}
 
 data_cfg = cfg.get("data", {}) or {}
-height = data_cfg.get("image_height", data_cfg.get("image_size"))
-width = data_cfg.get("image_width", data_cfg.get("image_size"))
+height = data_cfg.get("image_height")
+width = data_cfg.get("image_width")
 if height is None or width is None:
-    raise SystemExit(f"Missing image size in config: {config_path}")
+    raise SystemExit(f"Missing image_height/image_width in config: {config_path}")
 
 print(f"{int(height)} {int(width)}")
 PY

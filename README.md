@@ -51,23 +51,23 @@ python -m data_gen.build_dataset --synthetic-dir data/synthetic --external-dir d
 训练脚本自动检测最佳设备（CUDA > MPS > CPU），也可通过 `--device` 手动指定。
 
 ```bash
-# Mac M 芯片加速训练（Swin-small，batch_size=32）
-python -m model.train --config model/configs/swin_small_mps_train.yaml
+# Mac M 芯片加速训练（当前使用通用 Swin 配置）
+python -m model.train --config model/configs/swin_small_cuda_train.yaml --device mps
 
 # CUDA GPU 训练（Swin-small，支持 FP16 混合精度，batch_size=32）
 python -m model.train --config model/configs/swin_small_cuda_train.yaml
 
-# CPU 训练（batch_size=16，适合无 GPU 环境）
-python -m model.train --config model/configs/cpu_train.yaml
+# CPU 训练（当前使用轻量 CNN 配置）
+python -m model.train --config model/configs/cnn_cuda_train.yaml --device cpu
 
 # 从 checkpoint 恢复训练（config 需与原训练一致）
-python -m model.train --config model/configs/swin_small_mps_train.yaml --resume checkpoints/swin_small_mps/best.pt
+python -m model.train --config model/configs/swin_small_cuda_train.yaml --resume checkpoints/swin_small_cuda/best.pt
 
 # 手动指定设备（覆盖自动检测）
-python -m model.train --config model/configs/cpu_train.yaml --device cpu
+python -m model.train --config model/configs/cnn_cuda_train.yaml --device cpu
 
 # 评估
-python -m model.evaluate --checkpoint checkpoints/swin_small_mps/best.pt --data data/processed/test
+python -m model.evaluate --checkpoint checkpoints/swin_small_cuda/best.pt --data data/processed/test
 
 # 评估（CUDA 训练产物）
 python -m model.evaluate --checkpoint checkpoints/swin_small_cuda/best.pt --data data/processed/test

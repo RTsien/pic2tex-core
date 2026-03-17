@@ -11,9 +11,8 @@ from pathlib import Path
 @dataclass
 class EncoderConfig:
     encoder_type: str = "swin"  # "swin" or "cnn"
-    image_size: int = 224
-    image_height: Optional[int] = None
-    image_width: Optional[int] = None
+    image_height: int = 224
+    image_width: int = 224
     patch_size: int = 4
     in_channels: int = 1  # grayscale
     embed_dim: int = 64
@@ -69,9 +68,8 @@ class DataConfig:
     val_dir: str = "data/processed/val"
     test_dir: str = "data/processed/test"
     vocab_path: str = "model/vocab.json"
-    image_size: int = 224
-    image_height: Optional[int] = None
-    image_width: Optional[int] = None
+    image_height: int = 224
+    image_width: int = 224
     max_seq_len: int = 512
     keep_aspect_ratio: bool = True
     preprocessed_images: bool = False
@@ -85,9 +83,11 @@ class TexerConfig:
     data: DataConfig = field(default_factory=DataConfig)
 
     @staticmethod
-    def resolve_hw(height: Optional[int], width: Optional[int], fallback: int) -> tuple[int, int]:
-        h = int(height) if height is not None else int(fallback)
-        w = int(width) if width is not None else int(fallback)
+    def resolve_hw(height: int, width: int) -> tuple[int, int]:
+        h = int(height)
+        w = int(width)
+        if h <= 0 or w <= 0:
+            raise ValueError(f"Invalid image size: image_height={h}, image_width={w}")
         return h, w
 
     def save(self, path: str) -> None:

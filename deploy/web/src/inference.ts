@@ -8,7 +8,8 @@
 import * as ort from "onnxruntime-web";
 
 export interface ModelInfo {
-  image_size: number;
+  image_height: number;
+  image_width: number;
   max_seq_len: number;
   vocab_size: number;
   in_channels: number;
@@ -64,11 +65,21 @@ export class TeXerEngine {
     return this.encoderSession !== null && this.decoderSession !== null;
   }
 
+  private resolveImageHW(): { height: number; width: number } {
+    const info = this.modelInfo!;
+    const height = info.image_height;
+    const width = info.image_width;
+    if (!height || !width) {
+      throw new Error("Invalid model_info.json: missing image_height/image_width");
+    }
+    return { height, width };
+  }
+
   preprocessImage(imageData: ImageData): ort.Tensor {
-    const size = this.modelInfo!.image_size;
+    const { height, width } = this.resolveImageHW();
     const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext("2d")!;
 
     const tmpCanvas = document.createElement("canvas");
@@ -78,19 +89,19 @@ export class TeXerEngine {
     tmpCtx.putImageData(imageData, 0, 0);
 
     ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, size, size);
+    ctx.fillRect(0, 0, width, height);
 
-    const scale = Math.min(size / imageData.width, size / imageData.height);
+    const scale = Math.min(width / imageData.width, height / imageData.height);
     const w = imageData.width * scale;
     const h = imageData.height * scale;
-    const x = (size - w) / 2;
-    const y = (size - h) / 2;
+    const x = (width - w) / 2;
+    const y = (height - h) / 2;
     ctx.drawImage(tmpCanvas, x, y, w, h);
 
-    const resized = ctx.getImageData(0, 0, size, size);
-    const floatData = new Float32Array(size * size);
+    const resized = ctx.getImageData(0, 0, width, height);
+    const floatData = new Float32Array(width * height);
 
-    for (let i = 0; i < size * size; i++) {
+    for (let i = 0; i < width * height; i++) {
       const r = resized.data[i * 4];
       const g = resized.data[i * 4 + 1];
       const b = resized.data[i * 4 + 2];
@@ -98,7 +109,7 @@ export class TeXerEngine {
       floatData[i] = (gray - 0.5) / 0.5;
     }
 
-    return new ort.Tensor("float32", floatData, [1, 1, size, size]);
+    return new ort.Tensor("float32", floatData, [1, 1, height, width]);
   }
 
   async recognize(imageData: ImageData, maxLen: number = 100): Promise<string> {

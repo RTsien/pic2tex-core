@@ -180,7 +180,6 @@ def main():
     img_h, img_w = TexerConfig.resolve_hw(
         config.data.image_height,
         config.data.image_width,
-        config.data.image_size,
     )
 
     model = build_model(config)

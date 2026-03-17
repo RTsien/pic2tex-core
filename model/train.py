@@ -197,7 +197,6 @@ def train(config: TexerConfig, resume: str = None, force_device: str = None):
     img_h, img_w = TexerConfig.resolve_hw(
         config.data.image_height,
         config.data.image_width,
-        config.data.image_size,
     )
     train_loader = create_dataloader(
         config.data.train_dir, tokenizer,
@@ -335,6 +334,7 @@ def train(config: TexerConfig, resume: str = None, force_device: str = None):
                 f"  val_loss: {val_metrics['loss']:.4f} "
                 f"| val_acc: {val_metrics['accuracy']:.4f} "
                 f"| val_bleu: {val_metrics.get('bleu', 0):.4f} "
+                f"| val_exact_match: {val_metrics.get('exact_match', 0):.4f} "
                 f"| val_unique: {val_metrics.get('unique_prediction_ratio', 0):.4f}"
             )
 
@@ -347,6 +347,7 @@ def train(config: TexerConfig, resume: str = None, force_device: str = None):
                     "val_loss": val_metrics["loss"],
                     "val_acc": val_metrics["accuracy"],
                     "val_bleu": val_metrics.get("bleu", 0),
+                    "val_exact_match": val_metrics.get("exact_match", 0),
                     "val_unique_prediction_ratio": val_metrics.get("unique_prediction_ratio", 0),
                     "val_most_common_prediction_fraction": val_metrics.get("most_common_prediction_fraction", 0),
                     "lr": optimizer.param_groups[0]["lr"],

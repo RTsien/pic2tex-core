@@ -202,7 +202,6 @@ def preprocess_split(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Preprocess dataset images for faster training")
     parser.add_argument("--dataset-root", type=str, default="data/processed")
-    parser.add_argument("--image-size", type=int, default=None, help="Legacy square size fallback")
     parser.add_argument("--image-height", type=int, default=None)
     parser.add_argument("--image-width", type=int, default=None)
     parser.add_argument("--keep-aspect-ratio", action="store_true", default=False)
@@ -228,15 +227,10 @@ def main() -> None:
 
     dataset_root = Path(args.dataset_root).resolve()
     output_root = Path(args.output_root).resolve() if args.output_root else None
-    if args.image_height is None and args.image_width is None:
-        if args.image_size is None:
-            raise SystemExit("Specify --image-height/--image-width or --image-size")
-        image_height = image_width = int(args.image_size)
-    else:
-        if args.image_height is None or args.image_width is None:
-            raise SystemExit("Both --image-height and --image-width are required together")
-        image_height = int(args.image_height)
-        image_width = int(args.image_width)
+    if args.image_height is None or args.image_width is None:
+        raise SystemExit("Both --image-height and --image-width are required")
+    image_height = int(args.image_height)
+    image_width = int(args.image_width)
     splits = [s.strip() for s in args.splits.split(",") if s.strip()]
 
     total_done = 0

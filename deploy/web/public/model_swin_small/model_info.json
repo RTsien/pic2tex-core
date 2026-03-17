@@ -1,5 +1,6 @@
 {
-  "image_size": 224,
+  "image_height": 224,
+  "image_width": 224,
   "max_seq_len": 256,
   "vocab_size": 356,
   "in_channels": 1,

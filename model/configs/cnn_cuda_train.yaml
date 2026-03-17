@@ -1,6 +1,7 @@
 encoder:
   encoder_type: cnn
-  image_size: 224
+  image_height: 192
+  image_width: 384
   in_channels: 1
   cnn_channels: [64, 128, 256, 384]
   cnn_dropout: 0.1
@@ -15,25 +16,23 @@ decoder:
   dropout: 0.1
 
 train:
-  batch_size: 32
+  batch_size: 64
   num_epochs: 50
   learning_rate: 3.0e-4
   weight_decay: 0.01
   warmup_steps: 300
   label_smoothing: 0.1
   grad_clip: 1.0
-  fp16: false
-  num_workers: 4
+  fp16: true
+  num_workers: 12
   save_every: 5
-  eval_every: 1
+  eval_every: 2
   eval_generate_start_epoch: 5
-  val_max_generate: 64
+  val_max_generate: 200
   val_max_len: 256
   patience: 10
-  long_formula_min_tokens: 120
-  long_formula_oversample_factor: 1.8
-  checkpoint_dir: checkpoints/cnn_mps
-  log_dir: logs/cnn_mps
+  checkpoint_dir: checkpoints/cnn_cuda
+  log_dir: logs/cnn_cuda
   wandb_project: null
 
 data:
@@ -41,6 +40,7 @@ data:
   val_dir: data/processed/val
   test_dir: data/processed/test
   vocab_path: model/vocab.json
-  image_size: 224
+  image_height: 192
+  image_width: 384
   max_seq_len: 256
-  keep_aspect_ratio: true
+  preprocessed_images: true

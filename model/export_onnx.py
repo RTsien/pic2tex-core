@@ -203,7 +203,6 @@ def export_full(
     enc_h, enc_w = TexerConfig.resolve_hw(
         config.encoder.image_height,
         config.encoder.image_width,
-        config.encoder.image_size,
     )
 
     print("=== Exporting encoder ===")

@@ -39,3 +39,6 @@ Thumbs.db
 .env
 *.log
 wandb/
+data/processed_synth/test/images/*
+data/processed_synth/train/images/*
+data/processed_synth/val/images/*

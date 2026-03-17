@@ -1,6 +1,5 @@
 encoder:
   encoder_type: swin
-  image_size: 192
   image_height: 192
   image_width: 384
   patch_size: 4
@@ -48,7 +47,6 @@ data:
   val_dir: data/processed/val
   test_dir: data/processed/test
   vocab_path: model/vocab.json
-  image_size: 192
   image_height: 192
   image_width: 384
   max_seq_len: 256

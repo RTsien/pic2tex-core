@@ -1,0 +1,13 @@
+{
+  "total": 24925,
+  "categories": {
+    "simple": 12665,
+    "medium": 7028,
+    "complex": 2342,
+    "chemistry": 2878,
+    "physics": 12
+  },
+  "avg_latex_length": 23.607622868605816,
+  "max_latex_length": 108,
+  "min_latex_length": 5
+}
